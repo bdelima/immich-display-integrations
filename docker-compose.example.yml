@@ -1,0 +1,53 @@
+# Example: running immich-overflight-feed and immich-frame-mirror alongside
+# an existing Immich stack, using the published Docker Hub images.
+#
+# Both services expect to share the immich stack's default network so they
+# can reach immich-server internally (e.g. http://immich-server:2283).
+# Adjust the `networks:` section to match how your Immich compose project
+# names its network if you're merging this into an existing stack rather
+# than running it standalone.
+
+services:
+  immich-overflight-feed:
+    image: bdelima/immich-overflight-feed:latest
+    container_name: immich-overflight-feed
+    environment:
+      IMMICH_INTERNAL_URL: ${IMMICH_INTERNAL_URL}
+      IMMICH_PUBLIC_URL: ${IMMICH_PUBLIC_URL}
+      ALBUM_ID: ${ALBUM_ID}
+      IMMICH_API_KEY: ${IMMICH_API_KEY}
+      SHARE_SLUG: ${SHARE_SLUG}
+    ports:
+      - "8095:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - default
+
+  immich-frame-mirror:
+    image: bdelima/immich-frame-mirror:latest
+    container_name: immich-frame-mirror
+    environment:
+      IMMICH_INTERNAL_URL: ${IMMICH_INTERNAL_URL}
+      IMMICH_API_KEY: ${IMMICH_API_KEY}
+      ALBUM_ID: ${ALBUM_ID}
+      SHARE_SLUG: ${SHARE_SLUG}
+      FRAME_IP: ${FRAME_IP}
+      FRAME_MAC: ${FRAME_MAC}
+      MATTE: ${FRAME_MATTE:-none}
+      CHECK_INTERVAL_SECONDS: "3600"
+    volumes:
+      - ./frame-mirror-data:/data
+    restart: unless-stopped
+    networks:
+      - default
+
+networks:
+  default:
+    name: immich_default
+    external: true
