@@ -8,6 +8,8 @@ from flask import Flask, jsonify, Response
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("immich-overflight-feed")
 
+APP_VERSION = os.environ.get("APP_VERSION", "unknown")
+
 IMMICH_INTERNAL_URL = os.environ.get("IMMICH_INTERNAL_URL", os.environ.get("IMMICH_URL", "")).rstrip("/")
 # Used to query the album - when this feed lives in the same compose project
 # as immich-server, point this at http://immich-server:2283 so the lookup
@@ -124,6 +126,11 @@ def wallpapers_json():
 @app.route("/health")
 def health():
     return "ok", 200
+
+
+@app.route("/version")
+def version():
+    return jsonify({"version": APP_VERSION})
 
 
 if __name__ == "__main__":
