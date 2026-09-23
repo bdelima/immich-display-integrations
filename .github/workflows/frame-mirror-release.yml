@@ -5,18 +5,51 @@ on:
     branches: [main]
     paths:
       - 'frame-mirror/VERSION'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      created: ${{ steps.check.outputs.exists == 'false' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
-      - name: Read version
+      - name: Read version from VERSION file
         id: version
-        run: echo "value=$(cat frame-mirror/VERSION | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(tr -d ' \n' < frame-mirror/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this version was already released
+        id: check
+        run: |
+          if git rev-parse "frame-mirror-${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create tag and GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "frame-mirror-${{ steps.version.outputs.version }}" \
+            --title "frame-mirror ${{ steps.version.outputs.version }}" \
+            --generate-notes
+
+  docker:
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -36,13 +69,9 @@ jobs:
           context: ./frame-mirror
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            VERSION=${{ needs.release.outputs.version }}
+            REVISION=${{ github.sha }}
           tags: |
-            bdelima/immich-frame-mirror:${{ steps.version.outputs.value }}
+            bdelima/immich-frame-mirror:${{ needs.release.outputs.version }}
             bdelima/immich-frame-mirror:latest
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: frame-mirror-v${{ steps.version.outputs.value }}
-          name: frame-mirror v${{ steps.version.outputs.value }}
-          generate_release_notes: true

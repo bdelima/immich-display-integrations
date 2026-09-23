@@ -10,6 +10,8 @@ from wakeonlan import send_magic_packet
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("immich-frame-mirror")
 
+APP_VERSION = os.environ.get("APP_VERSION", "unknown")
+
 IMMICH_URL = os.environ["IMMICH_INTERNAL_URL"].rstrip("/")  # internal URL, e.g. http://immich-server:2283
 IMMICH_API_KEY = os.environ["IMMICH_API_KEY"]
 ALBUM_ID = os.environ["ALBUM_ID"]
@@ -213,6 +215,7 @@ def sync_once(get_tv_art, tv_art, state, immich_assets, to_add, to_remove):
 
 
 def main():
+    log.info("immich-frame-mirror v%s starting", APP_VERSION)
     os.makedirs(DATA_DIR, exist_ok=True)
     state = load_state()
 
