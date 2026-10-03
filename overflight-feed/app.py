@@ -24,12 +24,39 @@ IMMICH_PUBLIC_URL = os.environ.get("IMMICH_PUBLIC_URL", os.environ.get("IMMICH_U
 
 ALBUM_ID = os.environ["ALBUM_ID"]                             # album uuid
 
+
+def _resolve_immich_api_key():
+    """A bind-mounted file always wins over the IMMICH_API_KEY env var, so
+    rotating the key is "overwrite the file", never "edit compose and
+    restart" -- the same resolve_secret() rule immich-photo-pipeline uses
+    for this exact key (see app/secrets.py there), so this file can be the
+    one physical secret shared across all three of these containers
+    instead of a separately-copied value per project."""
+    key_file = os.environ.get("IMMICH_API_KEY_FILE", "/run/secrets/immich_api_key")
+    if key_file and os.path.isfile(key_file):
+        try:
+            with open(key_file, "r", encoding="utf-8") as fh:
+                content = fh.read().strip()
+        except OSError as exc:
+            log.warning("could not read %s: %s", key_file, exc)
+            content = ""
+        if content:
+            return content
+    env_key = os.environ.get("IMMICH_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    raise RuntimeError(
+        f"no Immich API key found: set IMMICH_API_KEY or bind-mount a file "
+        f"at {key_file} (IMMICH_API_KEY_FILE)"
+    )
+
+
 # The internal listing call uses a personal API key, not the shared-link
 # auth - Immich withholds the per-asset array from shared-link-authenticated
 # requests (confirmed empirically: /api/albums/{id}, /api/shared-links/me
 # all return assetCount but never the assets array when auth'd via
 # slug/key). A real API key gets the full, unrestricted response instead.
-IMMICH_API_KEY = os.environ["IMMICH_API_KEY"]
+IMMICH_API_KEY = _resolve_immich_api_key()
 
 # The shared-link auth is still needed for the url_img links themselves,
 # since that's what makes them fetchable unauthenticated from the Shield.

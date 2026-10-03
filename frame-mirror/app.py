@@ -13,7 +13,35 @@ log = logging.getLogger("immich-frame-mirror")
 APP_VERSION = os.environ.get("APP_VERSION", "unknown")
 
 IMMICH_URL = os.environ["IMMICH_INTERNAL_URL"].rstrip("/")  # internal URL, e.g. http://immich-server:2283
-IMMICH_API_KEY = os.environ["IMMICH_API_KEY"]
+
+
+def _resolve_immich_api_key():
+    """A bind-mounted file always wins over the IMMICH_API_KEY env var, so
+    rotating the key is "overwrite the file", never "edit compose and
+    restart" -- the same resolve_secret() rule immich-photo-pipeline uses
+    for this exact key (see app/secrets.py there), so this file can be the
+    one physical secret shared across all three of these containers
+    instead of a separately-copied value per project."""
+    key_file = os.environ.get("IMMICH_API_KEY_FILE", "/run/secrets/immich_api_key")
+    if key_file and os.path.isfile(key_file):
+        try:
+            with open(key_file, "r", encoding="utf-8") as fh:
+                content = fh.read().strip()
+        except OSError as exc:
+            log.warning("could not read %s: %s", key_file, exc)
+            content = ""
+        if content:
+            return content
+    env_key = os.environ.get("IMMICH_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    raise RuntimeError(
+        f"no Immich API key found: set IMMICH_API_KEY or bind-mount a file "
+        f"at {key_file} (IMMICH_API_KEY_FILE)"
+    )
+
+
+IMMICH_API_KEY = _resolve_immich_api_key()
 ALBUM_ID = os.environ["ALBUM_ID"]
 
 FRAME_IP = os.environ["FRAME_IP"]
