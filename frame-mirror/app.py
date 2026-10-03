@@ -16,28 +16,37 @@ IMMICH_URL = os.environ["IMMICH_INTERNAL_URL"].rstrip("/")  # internal URL, e.g.
 
 
 def _resolve_immich_api_key():
-    """A bind-mounted file always wins over the IMMICH_API_KEY env var, so
-    rotating the key is "overwrite the file", never "edit compose and
-    restart" -- the same resolve_secret() rule immich-photo-pipeline uses
-    for this exact key (see app/secrets.py there), so this file can be the
-    one physical secret shared across all three of these containers
-    instead of a separately-copied value per project."""
-    key_file = os.environ.get("IMMICH_API_KEY_FILE", "/run/secrets/immich_api_key")
-    if key_file and os.path.isfile(key_file):
+    """Reads IMMICH_API_KEY= from the shared secrets file this whole
+    Immich pipeline/display-integrations ecosystem uses (plain KEY=VALUE
+    lines, one per credential -- see immich-photo-pipeline's
+    app/secrets.py for the canonical version of this parsing, since
+    there's no shared package to import across these two repos). This
+    service only ever reads the IMMICH_API_KEY= line and leaves every
+    other key in the file (CLAUDE_CODE_OAUTH_TOKEN, IMMICH_EXTRA_API_KEY,
+    ...) strictly alone -- those belong to immich-photo-pipeline. The
+    file's value wins over the IMMICH_API_KEY env var, so rotating the
+    key is "edit that one line", never "edit compose and restart"."""
+    secrets_file = os.environ.get("SECRETS_FILE", "/run/secrets/immich_secrets.env")
+    if secrets_file and os.path.isfile(secrets_file):
         try:
-            with open(key_file, "r", encoding="utf-8") as fh:
-                content = fh.read().strip()
+            with open(secrets_file, "r", encoding="utf-8") as fh:
+                lines = fh.readlines()
         except OSError as exc:
-            log.warning("could not read %s: %s", key_file, exc)
-            content = ""
-        if content:
-            return content
+            log.warning("could not read %s: %s", secrets_file, exc)
+            lines = []
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            if key.strip() == "IMMICH_API_KEY" and value.strip():
+                return value.strip()
     env_key = os.environ.get("IMMICH_API_KEY", "").strip()
     if env_key:
         return env_key
     raise RuntimeError(
-        f"no Immich API key found: set IMMICH_API_KEY or bind-mount a file "
-        f"at {key_file} (IMMICH_API_KEY_FILE)"
+        f"no Immich API key found: set IMMICH_API_KEY or add an "
+        f"IMMICH_API_KEY=... line to {secrets_file} (SECRETS_FILE)"
     )
 
 

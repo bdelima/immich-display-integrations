@@ -15,23 +15,26 @@ services:
       IMMICH_INTERNAL_URL: ${IMMICH_INTERNAL_URL}
       IMMICH_PUBLIC_URL: ${IMMICH_PUBLIC_URL}
       ALBUM_ID: ${ALBUM_ID}
-      # Prefer the bind-mounted file below over this env var: it's the
-      # same master/admin Immich key immich-photo-pipeline and
-      # immich-frame-mirror also need, so one shared host file (mounted
-      # into all three) means rotating it is a single file overwrite
-      # instead of editing three compose files. IMMICH_API_KEY_FILE below
-      # wins when both are set; this var is just the fallback for anyone
-      # who'd rather not use a file.
+      # Prefer the IMMICH_API_KEY= line in the shared secrets file below
+      # over this env var: it's the same master/admin Immich key
+      # immich-photo-pipeline and immich-frame-mirror also need, so one
+      # shared file (mounted into all three) means rotating it is a
+      # single-line edit instead of editing three compose files. The
+      # file's line wins when both are set; this var is just the
+      # fallback for anyone who'd rather not use the file.
       IMMICH_API_KEY: ${IMMICH_API_KEY}
       SHARE_SLUG: ${SHARE_SLUG}
     volumes:
-      # Same key as IMMICH_API_KEY above, as a file -- point this at the
-      # SAME host file used by immich-frame-mirror below and by
-      # immich-photo-pipeline's IMMICH_API_KEY_FILE
-      # (bdelima/immich-photo-pipeline), e.g.
-      # ../immich-shared-secrets/immich_admin_api_key, not three separate
-      # copies of the same value.
-      - ../immich-shared-secrets/immich_admin_api_key:/run/secrets/immich_api_key:ro
+      # The shared secrets file used across this whole Immich pipeline --
+      # plain KEY=VALUE lines, one per credential. This service only
+      # reads the IMMICH_API_KEY= line out of it and ignores everything
+      # else (CLAUDE_CODE_OAUTH_TOKEN, IMMICH_EXTRA_API_KEY, etc. belong
+      # to immich-photo-pipeline). Point this at the SAME host file
+      # immich-frame-mirror below and immich-photo-pipeline's
+      # SECRETS_FILE (bdelima/immich-photo-pipeline) also mount, e.g.
+      # ../immich-shared-secrets/immich_secrets.env -- not three separate
+      # copies of the same key.
+      - ../immich-shared-secrets/immich_secrets.env:/run/secrets/immich_secrets.env:ro
     ports:
       - "8095:8080"
     restart: unless-stopped
@@ -60,7 +63,7 @@ services:
       CHECK_INTERVAL_SECONDS: "3600"
     volumes:
       - ./frame-mirror-data:/data
-      - ../immich-shared-secrets/immich_admin_api_key:/run/secrets/immich_api_key:ro
+      - ../immich-shared-secrets/immich_secrets.env:/run/secrets/immich_secrets.env:ro
     restart: unless-stopped
     networks:
       - default
