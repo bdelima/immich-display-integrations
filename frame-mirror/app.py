@@ -13,7 +13,44 @@ log = logging.getLogger("immich-frame-mirror")
 APP_VERSION = os.environ.get("APP_VERSION", "unknown")
 
 IMMICH_URL = os.environ["IMMICH_INTERNAL_URL"].rstrip("/")  # internal URL, e.g. http://immich-server:2283
-IMMICH_API_KEY = os.environ["IMMICH_API_KEY"]
+
+
+def _resolve_immich_api_key():
+    """Reads IMMICH_API_KEY= from the shared secrets file this whole
+    Immich pipeline/display-integrations ecosystem uses (plain KEY=VALUE
+    lines, one per credential -- see immich-photo-pipeline's
+    app/secrets.py for the canonical version of this parsing, since
+    there's no shared package to import across these two repos). This
+    service only ever reads the IMMICH_API_KEY= line and leaves every
+    other key in the file (CLAUDE_CODE_OAUTH_TOKEN, IMMICH_EXTRA_API_KEY,
+    ...) strictly alone -- those belong to immich-photo-pipeline. The
+    file's value wins over the IMMICH_API_KEY env var, so rotating the
+    key is "edit that one line", never "edit compose and restart"."""
+    secrets_file = os.environ.get("SECRETS_FILE", "/run/secrets/immich_secrets.env")
+    if secrets_file and os.path.isfile(secrets_file):
+        try:
+            with open(secrets_file, "r", encoding="utf-8") as fh:
+                lines = fh.readlines()
+        except OSError as exc:
+            log.warning("could not read %s: %s", secrets_file, exc)
+            lines = []
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            if key.strip() == "IMMICH_API_KEY" and value.strip():
+                return value.strip()
+    env_key = os.environ.get("IMMICH_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    raise RuntimeError(
+        f"no Immich API key found: set IMMICH_API_KEY or add an "
+        f"IMMICH_API_KEY=... line to {secrets_file} (SECRETS_FILE)"
+    )
+
+
+IMMICH_API_KEY = _resolve_immich_api_key()
 ALBUM_ID = os.environ["ALBUM_ID"]
 
 FRAME_IP = os.environ["FRAME_IP"]

@@ -15,8 +15,26 @@ services:
       IMMICH_INTERNAL_URL: ${IMMICH_INTERNAL_URL}
       IMMICH_PUBLIC_URL: ${IMMICH_PUBLIC_URL}
       ALBUM_ID: ${ALBUM_ID}
+      # Prefer the IMMICH_API_KEY= line in the shared secrets file below
+      # over this env var: it's the same master/admin Immich key
+      # immich-photo-pipeline and immich-frame-mirror also need, so one
+      # shared file (mounted into all three) means rotating it is a
+      # single-line edit instead of editing three compose files. The
+      # file's line wins when both are set; this var is just the
+      # fallback for anyone who'd rather not use the file.
       IMMICH_API_KEY: ${IMMICH_API_KEY}
       SHARE_SLUG: ${SHARE_SLUG}
+    volumes:
+      # The shared secrets file used across this whole Immich pipeline --
+      # plain KEY=VALUE lines, one per credential. This service only
+      # reads the IMMICH_API_KEY= line out of it and ignores everything
+      # else (CLAUDE_CODE_OAUTH_TOKEN, IMMICH_EXTRA_API_KEY, etc. belong
+      # to immich-photo-pipeline). Point this at the SAME host file
+      # immich-frame-mirror below and immich-photo-pipeline's
+      # SECRETS_FILE (bdelima/immich-photo-pipeline) also mount, e.g.
+      # ../immich-shared-secrets/immich_secrets.env -- not three separate
+      # copies of the same key.
+      - ../immich-shared-secrets/immich_secrets.env:/run/secrets/immich_secrets.env:ro
     ports:
       - "8095:8080"
     restart: unless-stopped
@@ -34,6 +52,8 @@ services:
     container_name: immich-frame-mirror
     environment:
       IMMICH_INTERNAL_URL: ${IMMICH_INTERNAL_URL}
+      # Same key/file convergence as immich-overflight-feed above -- see
+      # that service's comments.
       IMMICH_API_KEY: ${IMMICH_API_KEY}
       ALBUM_ID: ${ALBUM_ID}
       SHARE_SLUG: ${SHARE_SLUG}
@@ -43,6 +63,7 @@ services:
       CHECK_INTERVAL_SECONDS: "3600"
     volumes:
       - ./frame-mirror-data:/data
+      - ../immich-shared-secrets/immich_secrets.env:/run/secrets/immich_secrets.env:ro
     restart: unless-stopped
     networks:
       - default
