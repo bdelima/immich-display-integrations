@@ -1,4 +1,4 @@
-requests==2.32.3
+requests==2.33.0
 samsungtvws==2.7.2
 websocket-client==1.8.0
 wakeonlan==3.1.0
