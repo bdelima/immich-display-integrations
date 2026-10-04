@@ -6,6 +6,8 @@ for a TV that sleeps aggressively.
 
 Docker Hub: [`bdelima/immich-frame-mirror`](https://hub.docker.com/r/bdelima/immich-frame-mirror)
 
+See the repo-root README's [Setup](../README.md#setup) section for getting an Immich API key, finding `ALBUM_ID`, and creating a shared link for `SHARE_SLUG`/`SHARE_KEY` if you haven't already.
+
 ## How it works
 
 - On each cycle, diffs the Immich album's current images against what's
@@ -28,7 +30,8 @@ Docker Hub: [`bdelima/immich-frame-mirror`](https://hub.docker.com/r/bdelima/imm
 | Variable | Required | Description |
 |---|---|---|
 | `IMMICH_INTERNAL_URL` | yes | Immich URL reachable from this container, e.g. `http://immich-server:2283`. |
-| `IMMICH_API_KEY` | yes | Personal Immich API key, used for listing. |
+| `IMMICH_API_KEY` | yes, unless set via `SECRETS_FILE` | Personal Immich API key, used for listing. |
+| `SECRETS_FILE` | no (default `/run/secrets/immich_secrets.env`) | Path to a shared `KEY=VALUE` secrets file. An `IMMICH_API_KEY=` line in it wins over the env var above — this is the same file [immich-photo-pipeline](https://github.com/bdelima/immich-photo-pipeline) uses; this service only ever reads that one line out of it. |
 | `ALBUM_ID` | yes | UUID of the Immich album to mirror. Only `IMAGE` assets are used — videos are skipped. |
 | `SHARE_SLUG` or `SHARE_KEY` | one required | Immich shared-link auth, used to download asset bytes. |
 | `FRAME_IP` | yes | LAN IP of the Frame TV. |
