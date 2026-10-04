@@ -6,6 +6,8 @@ screen background rotates through a shared Immich album.
 
 Docker Hub: [`bdelima/immich-overflight-feed`](https://hub.docker.com/r/bdelima/immich-overflight-feed)
 
+See the repo-root README's [Setup](../README.md#setup) section for getting an Immich API key, finding `ALBUM_ID`, and creating a shared link for `SHARE_SLUG`/`SHARE_KEY` if you haven't already.
+
 ## How it works
 
 - Lists the album's assets via `POST /api/search/metadata` with an
@@ -26,7 +28,8 @@ Docker Hub: [`bdelima/immich-overflight-feed`](https://hub.docker.com/r/bdelima/
 | `IMMICH_INTERNAL_URL` | yes | Immich URL reachable from this container (e.g. `http://immich-server:2283` on the same Docker network). Used for the album listing call. |
 | `IMMICH_PUBLIC_URL` | yes | Immich URL reachable from the *device displaying the wallpapers* (e.g. `https://immich.example.com`). Used to build the `url_img` links. |
 | `ALBUM_ID` | yes | UUID of the Immich album to serve. |
-| `IMMICH_API_KEY` | yes | Personal Immich API key, used only for listing. |
+| `IMMICH_API_KEY` | yes, unless set via `SECRETS_FILE` | Personal Immich API key, used only for listing. |
+| `SECRETS_FILE` | no (default `/run/secrets/immich_secrets.env`) | Path to a shared `KEY=VALUE` secrets file. An `IMMICH_API_KEY=` line in it wins over the env var above — this is the same file [immich-photo-pipeline](https://github.com/bdelima/immich-photo-pipeline) uses; this service only ever reads that one line out of it. |
 | `SHARE_SLUG` or `SHARE_KEY` | one required | Immich shared-link auth, used for the asset download URLs embedded in the JSON. |
 | `CACHE_SECONDS` | no (default `300`) | How long to cache the album listing before re-fetching. |
 | `REQUEST_TIMEOUT` | no (default `10`) | Timeout in seconds for calls to Immich. |
