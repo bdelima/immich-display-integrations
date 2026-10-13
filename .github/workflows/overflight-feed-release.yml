@@ -71,6 +71,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "overflight-feed-${{ steps.version.outputs.version }}" \
+            --target "${{ github.sha }}" \
             --title "overflight-feed ${{ steps.version.outputs.version }}" \
             --generate-notes
 
