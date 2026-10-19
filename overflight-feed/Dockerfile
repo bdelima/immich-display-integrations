@@ -21,4 +21,6 @@ ENV APP_VERSION="${VERSION}"
 
 EXPOSE 8080
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "app:app"]
+# Threads, and a long timeout: an original (a video, say) can take a while to
+# download from Immich the first time it is asked for.
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--worker-class", "gthread", "--threads", "4", "--timeout", "300", "app:app"]
