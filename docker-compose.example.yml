@@ -24,7 +24,14 @@ services:
       # fallback for anyone who'd rather not use the file.
       IMMICH_API_KEY: ${IMMICH_API_KEY}
       SHARE_SLUG: ${SHARE_SLUG}
+      # Optional: where the TV reaches this service, if the address it used
+      # for /wallpapers.json isn't the right one for the image links.
+      # FEED_PUBLIC_URL: https://feed.example.com
     volumes:
+      # Local copies of the album's originals (full resolution), so Immich
+      # reads each photo once instead of every time the TV shows it. Keep
+      # this on a local disk, not on the disks behind Immich's library.
+      - ./overflight-feed-data:/data/images
       # The shared secrets file used across this whole Immich pipeline --
       # plain KEY=VALUE lines, one per credential. This service only
       # reads the IMMICH_API_KEY= line out of it and ignores everything
