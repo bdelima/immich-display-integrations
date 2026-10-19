@@ -62,15 +62,26 @@ See each service's own README ([overflight-feed](overflight-feed/README.md), [fr
 
 ## Releasing
 
-Each service releases independently, triggered by a push to `main` that
-changes that service's `VERSION` file:
+Each service releases independently, started by a change to that service's
+`VERSION` file on `main`. `main` is protected, so changes arrive by pull
+request, and so does the version bump:
 
-1. Bump `overflight-feed/VERSION` or `frame-mirror/VERSION`.
-2. Push to `main`.
-3. GitHub Actions builds the image from that service's subfolder, pushes it
-   to Docker Hub tagged with the version and `latest`, and creates a
-   matching GitHub Release (tagged `overflight-feed-vX.Y.Z` or
-   `frame-mirror-vX.Y.Z`).
+1. Merge the change you want to release.
+2. Bump `overflight-feed/VERSION` or `frame-mirror/VERSION` on a branch and
+   merge that pull request. Merging it starts the release workflow.
+3. The workflow then waits for approval: the job runs in the `release`
+   Environment, which needs a required reviewer to approve it (Actions →
+   the run → Review deployments). Nothing is built until that happens.
+4. Once approved, GitHub Actions builds the image from that service's
+   subfolder (amd64 only), pushes it to Docker Hub tagged with the version
+   and `latest`, and only then creates the matching GitHub Release, tagged
+   `overflight-feed-X.Y.Z` or `frame-mirror-X.Y.Z` (no `v`) on the commit
+   that started the run. A failed build therefore leaves no tag behind.
+
+A version that already has its tag is skipped, so re-running a finished
+release does nothing. Changes to the workflow files or anything else in the
+repo do not start a release; only the `VERSION` files do (or a manual run of
+the workflow from the Actions tab).
 
 ### Required repo secrets
 
