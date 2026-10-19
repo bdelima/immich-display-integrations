@@ -84,6 +84,7 @@ _AUTH_PARAM = {"slug": SHARE_SLUG} if SHARE_SLUG else {"key": SHARE_KEY}
 
 CACHE_SECONDS = int(os.environ.get("CACHE_SECONDS", "300"))  # how long to cache Immich's album response
 REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT", "10"))
+REFRESH_SECONDS = 10    # the album listing is not asked for again sooner than this because a photo's name was not in it
 DOWNLOAD_TIMEOUT = int(os.environ.get("DOWNLOAD_TIMEOUT", "120"))  # seconds without data while downloading an original
 
 # Where the originals are kept. Each photo is read from Immich once, the first
@@ -107,7 +108,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 _cache = {"body": None, "fetched_at": 0}
 _cache_lock = threading.Lock()
 _NAME = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{10}\.[a-z0-9]{1,5}$")
-_STALE_SECONDS = 24 * 3600     # a cached file no longer in the album is kept this long before it is removed
+_STALE_SECONDS = 24 * 3600     # a cached file is kept this long after it is first missing from the album
 
 
 def _cache_ready():
@@ -225,31 +226,52 @@ def _warm(wallpapers):
             log.error("could not cache %s: %s", entry["name"], exc)
 
 
+_FILE = re.compile(r"^(?P<base>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{10}\.[a-z0-9]{1,5})(?P<rest>.*)$")
+
+
 def _prune(wallpapers):
-    """Removes cached files for photos that left the album, a day after they left.
-    Skipped when the album listing is empty, so a bad answer from Immich can't
-    empty the cache."""
+    """Removes the cached copy of a photo a day after it left the album. The day is counted from
+    when the photo was first missing from the album listing: that moment is written down as a
+    small `<name>.gone` file next to the copy (so it survives a restart and is shared by the
+    server's workers), and the file is taken away again if the photo comes back. Skipped when the
+    album listing is empty, so a bad answer from Immich can't empty the cache."""
     if not wallpapers:
         return
     keep = {w["name"] for w in wallpapers}
-    keep |= {n + ".lock" for n in keep}
     now = time.time()
+    groups = {}         # cached name -> every file that belongs to it (the copy, its lock, a marker, a partial download)
     for name in os.listdir(CACHE_DIR):
-        if name in keep or name.startswith("."):
-            continue
-        path = os.path.join(CACHE_DIR, name)
+        m = _FILE.match(name)
+        if m:
+            groups.setdefault(m.group("base"), []).append(name)
+    for base, names in groups.items():
+        marker = os.path.join(CACHE_DIR, base + ".gone")
         try:
-            if now - os.path.getmtime(path) > _STALE_SECONDS:
-                os.remove(path)
-                log.info("removed %s (no longer in the album)", name)
+            if base in keep:
+                if base + ".gone" in names:
+                    os.remove(marker)
+                continue
+            if base + ".gone" not in names:
+                fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)       # first time it is missing
+                os.close(fd)
+                continue
+            if now - os.path.getmtime(marker) > _STALE_SECONDS:
+                for name in names:
+                    os.remove(os.path.join(CACHE_DIR, name))
+                log.info("removed %s (left the album more than a day ago)", base)
+        except FileExistsError:
+            pass                            # another worker wrote the marker first
         except OSError:
             pass
 
 
-def get_wallpapers_cached():
+def get_wallpapers_cached(max_age=None):
+    """The album listing, asked of Immich again when what we hold is older than `max_age`
+    seconds (CACHE_SECONDS by default)."""
+    max_age = CACHE_SECONDS if max_age is None else max_age
     now = time.time()
     with _cache_lock:
-        if _cache["body"] is not None and (now - _cache["fetched_at"]) <= CACHE_SECONDS:
+        if _cache["body"] is not None and (now - _cache["fetched_at"]) <= max_age:
             return _cache["body"]
         try:
             _cache["body"] = fetch_wallpapers()
@@ -309,7 +331,16 @@ def image(name):
         abort(404)
     path = os.path.join(CACHE_DIR, name)
     if not os.path.isfile(path):
-        entry = next((w for w in (_cache["body"] or []) if w["name"] == name), None)
+        # Each worker keeps its own copy of the album listing, so one that has not looked yet (just
+        # started) or looked a while ago may not know a photo the other one has already listed. Ask
+        # again before saying no, but not more than once every REFRESH_SECONDS, so a made-up name
+        # can't make the feed query Immich over and over.
+        try:
+            entry = next((w for w in get_wallpapers_cached() if w["name"] == name), None)
+            if entry is None:
+                entry = next((w for w in get_wallpapers_cached(max_age=REFRESH_SECONDS) if w["name"] == name), None)
+        except requests.RequestException:
+            abort(502)
         if entry is None:
             abort(404)
         try:

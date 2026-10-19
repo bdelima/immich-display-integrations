@@ -20,12 +20,14 @@ BYTES = {ID1: b"\xff\xd8original-one" * 1000, ID2: b"\x00\x00\x00 ftypmp42video"
 class FakeImmich(BaseHTTPRequestHandler):
     downloads = []          # asset ids fetched, in order
     items = []
+    listings = 0            # how many times the album was asked for
 
     def log_message(self, *args):
         pass
 
     def do_POST(self):
         self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        FakeImmich.listings += 1
         body = json.dumps({"assets": {"items": FakeImmich.items, "nextPage": None}}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -50,6 +52,7 @@ class FakeImmich(BaseHTTPRequestHandler):
 @pytest.fixture()
 def feed(tmp_path, monkeypatch):
     FakeImmich.downloads = []
+    FakeImmich.listings = 0
     FakeImmich.items = [
         {"id": ID1, "originalFileName": "IMG_0001.JPG", "type": "IMAGE", "checksum": "abc"},
         {"id": ID2, "originalFileName": "clip.mp4", "type": "VIDEO", "checksum": "def"},
@@ -154,23 +157,85 @@ def test_a_short_download_is_not_kept(feed, monkeypatch):
     assert BYTES[ID1] == BYTES_BACKUP
 
 
-def test_prune_removes_old_files_of_photos_that_left_and_keeps_current_ones(feed):
+def _age(path, seconds):
+    old = os.path.getmtime(path) - seconds
+    os.utime(path, (old, old))
+
+
+def test_a_copy_is_removed_a_day_after_the_photo_left_the_album_not_a_day_after_it_was_downloaded(feed):
     module, client = feed
     wallpapers = module.get_wallpapers_cached()
     module._warm(wallpapers)
     gone = os.path.join(module.CACHE_DIR, "33333333-3333-4333-8333-333333333333-0123456789.jpg")
-    fresh = os.path.join(module.CACHE_DIR, "44444444-4444-4444-8444-444444444444-0123456789.jpg")
-    for p in (gone, fresh):
-        open(p, "wb").close()
-    old = os.path.getmtime(gone) - 3 * 24 * 3600
-    os.utime(gone, (old, old))
+    open(gone, "wb").close()
+    _age(gone, 10 * 24 * 3600)                      # downloaded ten days ago...
+    module._prune(wallpapers)                       # ...and only now found to be missing from the album
+    assert os.path.exists(gone)                     # so it stays: the day starts now
+    assert os.path.exists(gone + ".gone")
     module._prune(wallpapers)
-    assert not os.path.exists(gone)
-    assert os.path.exists(fresh)                    # left the album less than a day ago
-    for w in wallpapers:
+    assert os.path.exists(gone)
+    _age(gone + ".gone", 25 * 3600)                 # a day and an hour later
+    module._prune(wallpapers)
+    assert not os.path.exists(gone) and not os.path.exists(gone + ".gone")
+    for w in wallpapers:                            # what is in the album is never touched
         assert os.path.exists(os.path.join(module.CACHE_DIR, w["name"]))
-    module._prune([])                               # an empty answer never empties the cache
+
+
+def test_a_photo_that_comes_back_to_the_album_keeps_its_copy(feed):
+    module, client = feed
+    wallpapers = module.get_wallpapers_cached()
+    module._warm(wallpapers)
+    first = wallpapers[0]
+    path = os.path.join(module.CACHE_DIR, first["name"])
+    module._prune(wallpapers[1:])                   # it is missing for a while...
+    assert os.path.exists(path + ".gone")
+    _age(path + ".gone", 3 * 24 * 3600)
+    module._prune(wallpapers)                       # ...but is back before the prune that would have removed it
+    assert os.path.exists(path) and not os.path.exists(path + ".gone")
+    module._prune(wallpapers[1:])                   # missing again: a fresh day starts, it is not removed at once
+    assert os.path.exists(path)
+
+
+def test_prune_never_empties_the_cache_on_an_empty_listing(feed):
+    module, client = feed
+    wallpapers = module.get_wallpapers_cached()
+    module._warm(wallpapers)
+    module._prune([])
     assert os.path.exists(os.path.join(module.CACHE_DIR, wallpapers[0]["name"]))
+    assert not [f for f in os.listdir(module.CACHE_DIR) if f.endswith(".gone")]
+
+
+def test_a_worker_that_has_not_listed_the_album_yet_still_serves_an_album_photo(feed):
+    module, client = feed
+    assert module._cache["body"] is None            # this worker has not looked at the album
+    name = module._cache_name(FakeImmich.items[0])
+    r = client.get("/img/" + name)
+    assert r.status_code == 200 and r.data == BYTES[ID1]
+    assert FakeImmich.downloads == [ID1]
+
+
+def test_a_photo_added_since_this_worker_last_listed_is_found(feed):
+    module, client = feed
+    module.get_wallpapers_cached()
+    module._cache["fetched_at"] -= 60               # a minute old: still inside CACHE_SECONDS, but older than REFRESH_SECONDS
+    ID3 = "33333333-3333-4333-8333-333333333333"
+    BYTES[ID3] = b"brand new"
+    try:
+        FakeImmich.items.append({"id": ID3, "originalFileName": "new.jpg", "type": "IMAGE", "checksum": "ghi"})
+        r = client.get("/img/" + module._cache_name(FakeImmich.items[-1]))
+        assert r.status_code == 200 and r.data == b"brand new"
+    finally:
+        BYTES.pop(ID3, None)
+
+
+def test_a_made_up_name_cannot_make_the_feed_ask_immich_for_the_album_again_and_again(feed):
+    module, client = feed
+    module.get_wallpapers_cached()
+    module._cache["fetched_at"] -= 60
+    before = FakeImmich.listings
+    for _ in range(5):
+        assert client.get("/img/" + ID1 + "-0000000000.jpg").status_code == 404
+    assert FakeImmich.listings == before + 1        # asked once, then left alone for REFRESH_SECONDS
 
 
 def test_cache_off_keeps_the_old_links(feed, monkeypatch):
